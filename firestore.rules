@@ -1,0 +1,274 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasUserProfile() {
+      return isSignedIn() && exists(currentUserPath());
+    }
+
+    function currentUser() {
+      return get(currentUserPath()).data;
+    }
+
+    function isValidActiveUser() {
+      return hasUserProfile()
+        && currentUser().uid == request.auth.uid
+        && currentUser().status == 'ACTIVE'
+        && (
+          (currentUser().role == 'MASTER' && currentUser().storeId == null)
+          || (currentUser().role == 'MERCHANT'
+            && currentUser().storeId is string
+            && currentUser().storeId.size() > 0)
+        );
+    }
+
+    function isMaster() {
+      return isValidActiveUser() && currentUser().role == 'MASTER';
+    }
+
+    function isMerchantOf(storeId) {
+      return isValidActiveUser()
+        && currentUser().role == 'MERCHANT'
+        && currentUser().storeId == storeId;
+    }
+
+    function privateStoreIsActive(storeId) {
+      return exists(/databases/$(database)/documents/stores/$(storeId))
+        && get(/databases/$(database)/documents/stores/$(storeId)).data.status == 'ACTIVE';
+    }
+
+    function publicProductData(storeId, id, product) {
+      let active = product.status == 'ACTIVE';
+      let maximum = !active ? 0 : product.stock >= 5 ? 5 : product.stock >= 2 ? 2 : product.stock >= 1 ? 1 : 0;
+      return {'id': id, 'storeId': storeId, 'name': product.name, 'description': product.description,
+        'priceCents': product.priceCents, 'categoryId': product.categoryId, 'publishable': active,
+        'available': maximum > 0, 'maxQuantity': maximum};
+    }
+    function publicCategoryData(storeId, id, category) {
+      return {'id': id, 'storeId': storeId, 'name': category.name, 'publishable': category.status == 'ACTIVE'};
+    }
+    function publishingEnabled(storeId) {
+      return get(/databases/$(database)/documents/stores/$(storeId)).data.get('publicCatalogEnabled', false) == true;
+    }
+
+    match /users/{uid} {
+      allow get: if isValidActiveUser() && (request.auth.uid == uid || isMaster());
+      allow list: if isMaster();
+      allow create, update, delete: if false;
+    }
+
+    match /stores/{storeId} {
+      allow get, list: if isMaster() || isMerchantOf(storeId);
+      allow create, delete: if false;
+      allow update: if isMerchantOf(storeId) && privateStoreIsActive(storeId)
+        && (editableStore() || catalogCommit());
+
+      function storePath() { return /databases/$(database)/documents/stores/$(storeId); }
+      function productPath(id) { return /databases/$(database)/documents/stores/$(storeId)/products/$(id); }
+      function categoryPath(id) { return /databases/$(database)/documents/stores/$(storeId)/categories/$(id); }
+      function movementPath(id) { return /databases/$(database)/documents/stores/$(storeId)/stockMovements/$(id); }
+      function prior() { return get(storePath()).data; }
+      function after() { return getAfter(storePath()).data; }
+      function safeInt(value) { return value is int && value >= 0 && value <= 9007199254740991; }
+      function named(value) { return value is string && value.size() > 0 && value.size() <= 120 && value.matches('.*[^ ].*'); }
+      function validId(value) { return value is string && value.matches('[a-zA-Z0-9_-]{1,128}'); }
+      function editableStore() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'whatsapp', 'updatedAt'])
+          && request.resource.data.get('whatsapp', '') is string
+          && (request.resource.data.get('whatsapp', '') == '' || request.resource.data.whatsapp.matches('[1-9][0-9]{9,14}'))
+          && named(request.resource.data.name) && request.resource.data.updatedAt == request.time
+          && (!publishingEnabled(storeId) || (getAfter(/databases/$(database)/documents/publicStores/$(storeId)).data.name == request.resource.data.name
+            && getAfter(/databases/$(database)/documents/publicStores/$(storeId)).data.get('whatsapp', '') == request.resource.data.get('whatsapp', '')));
+      }
+      function witness(kind, id) {
+        return isMerchantOf(storeId) && privateStoreIsActive(storeId)
+          && after().usage.revision == prior().usage.revision + 1
+          && after().catalogMutation == {'kind': kind, 'id': id};
+      }
+      function oldProductCount(id) { return exists(productPath(id)) && get(productPath(id)).data.status != 'ARCHIVED' ? 1 : 0; }
+      function newProductCount(id) { return getAfter(productPath(id)).data.status != 'ARCHIVED' ? 1 : 0; }
+      function oldCategoryCount(id) { return exists(categoryPath(id)) && get(categoryPath(id)).data.status != 'ARCHIVED' ? 1 : 0; }
+      function newCategoryCount(id) { return getAfter(categoryPath(id)).data.status != 'ARCHIVED' ? 1 : 0; }
+      function productQuota(id) {
+        let product = getAfter(productPath(id)).data;
+        return product.catalogRevision == after().usage.revision && product.updatedAt == request.time
+          && after().usage.productCount == prior().usage.productCount + newProductCount(id) - oldProductCount(id)
+          && after().usage.categoryCount == prior().usage.categoryCount;
+      }
+      function categoryQuota(id) {
+        let category = getAfter(categoryPath(id)).data;
+        return category.catalogRevision == after().usage.revision && category.updatedAt == request.time
+          && after().usage.categoryCount == prior().usage.categoryCount + newCategoryCount(id) - oldCategoryCount(id)
+          && after().usage.productCount == prior().usage.productCount;
+      }
+      function catalogCommit() {
+        let next = request.resource.data;
+        return next.diff(resource.data).affectedKeys().hasOnly(['usage', 'catalogMutation'])
+          && next.usage.keys().hasOnly(['productCount', 'categoryCount', 'revision'])
+          && safeInt(next.usage.productCount) && next.usage.productCount <= 50
+          && safeInt(next.usage.categoryCount) && next.usage.categoryCount <= 5
+          && safeInt(next.usage.revision) && next.usage.revision == resource.data.usage.revision + 1
+          && next.catalogMutation.keys().hasOnly(['kind', 'id']) && validId(next.catalogMutation.id)
+          && ((next.catalogMutation.kind == 'PRODUCT' && productQuota(next.catalogMutation.id))
+            || (next.catalogMutation.kind == 'CATEGORY' && categoryQuota(next.catalogMutation.id)));
+      }
+      function contributionBefore(categoryId, productId) {
+        return exists(productPath(productId)) && get(productPath(productId)).data.categoryId == categoryId
+          && get(productPath(productId)).data.status != 'ARCHIVED' ? 1 : 0;
+      }
+      function contributionAfter(categoryId, productId) {
+        let product = getAfter(productPath(productId)).data;
+        return product.categoryId == categoryId && product.status != 'ARCHIVED' ? 1 : 0;
+      }
+      function categoryDelta(categoryId, productId) { return contributionAfter(categoryId, productId) - contributionBefore(categoryId, productId); }
+      function categoryBalanced(categoryId, productId) {
+        return getAfter(categoryPath(categoryId)).data.productCount == get(categoryPath(categoryId)).data.productCount + categoryDelta(categoryId, productId);
+      }
+      function productLinks(id, next) {
+        return exists(categoryPath(next.categoryId))
+          && (next.status == 'ARCHIVED' && exists(productPath(id)) && next.categoryId == get(productPath(id)).data.categoryId
+            || getAfter(categoryPath(next.categoryId)).data.status == 'ACTIVE')
+          && categoryBalanced(next.categoryId, id)
+          && (!exists(productPath(id)) || categoryBalanced(get(productPath(id)).data.categoryId, id));
+      }
+      function validProduct(id, data) {
+        return data.keys().hasOnly(['id', 'storeId', 'name', 'description', 'priceCents', 'categoryId', 'stock', 'status', 'createdAt', 'updatedAt', 'catalogRevision'])
+          && data.id == id && data.storeId == storeId && validId(id) && validId(data.categoryId)
+          && named(data.name) && data.description is string && data.description.size() <= 2000
+          && safeInt(data.priceCents) && safeInt(data.stock)
+          && data.status in ['ACTIVE', 'INACTIVE', 'ARCHIVED']
+          && data.createdAt is timestamp && data.updatedAt == request.time
+          && data.catalogRevision == after().usage.revision
+          && (!publishingEnabled(storeId) || getAfter(/databases/$(database)/documents/publicStores/$(storeId)/products/$(id)).data == publicProductData(storeId, id, data));
+      }
+      function initialStock(id, data) {
+        return data.stock == 0 || (getAfter(movementPath(id)).data.newStock == data.stock
+          && getAfter(movementPath(id)).data.previousStock == 0);
+      }
+      match /products/{productId} {
+        allow read: if isMerchantOf(storeId);
+        allow create: if witness('PRODUCT', productId) && validProduct(productId, request.resource.data)
+          && request.resource.data.createdAt == request.time && request.resource.data.status in ['ACTIVE', 'INACTIVE']
+          && productLinks(productId, request.resource.data) && initialStock(productId, request.resource.data);
+        allow update: if witness('PRODUCT', productId) && validProduct(productId, request.resource.data)
+          && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.stock == resource.data.stock
+          && productLinks(productId, request.resource.data);
+        allow delete: if false;
+      }
+      function validCategory(id, data) {
+        return data.keys().hasOnly(['id', 'storeId', 'name', 'status', 'createdAt', 'updatedAt', 'productCount', 'catalogRevision'])
+          && data.id == id && data.storeId == storeId && validId(id) && named(data.name)
+          && data.status in ['ACTIVE', 'ARCHIVED'] && safeInt(data.productCount) && data.productCount <= 50
+          && data.createdAt is timestamp && data.updatedAt == request.time && data.catalogRevision == after().usage.revision
+          && (!publishingEnabled(storeId) || getAfter(/databases/$(database)/documents/publicStores/$(storeId)/categories/$(id)).data == publicCategoryData(storeId, id, data));
+      }
+      function categoryCounterUpdate(id) {
+        let productId = after().catalogMutation.id;
+        return witness('PRODUCT', productId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['productCount', 'updatedAt', 'catalogRevision'])
+          && categoryDelta(id, productId) != 0 && categoryBalanced(id, productId);
+      }
+      match /categories/{categoryId} {
+        allow read: if isMerchantOf(storeId);
+        allow create: if witness('CATEGORY', categoryId) && validCategory(categoryId, request.resource.data)
+          && request.resource.data.createdAt == request.time && request.resource.data.status == 'ACTIVE' && request.resource.data.productCount == 0;
+        allow update: if validCategory(categoryId, request.resource.data) && request.resource.data.createdAt == resource.data.createdAt
+          && ((witness('CATEGORY', categoryId) && request.resource.data.productCount == resource.data.productCount
+              && (request.resource.data.status != 'ARCHIVED' || resource.data.productCount == 0))
+            || categoryCounterUpdate(categoryId));
+        allow delete: if false;
+      }
+      match /stockMovements/{movementId} {
+        allow read: if isMerchantOf(storeId);
+        allow update, delete: if false;
+        allow create: if witness('PRODUCT', movementId) && !exists(productPath(movementId))
+          && request.resource.data.keys().hasOnly(['id', 'storeId', 'productId', 'type', 'quantity', 'previousStock', 'newStock', 'reason', 'createdAt', 'createdBy', 'idempotencyKey'])
+          && request.resource.data.id == movementId && request.resource.data.storeId == storeId && request.resource.data.productId == movementId
+          && request.resource.data.type == 'MANUAL_ENTRY' && request.resource.data.previousStock == 0
+          && safeInt(request.resource.data.quantity) && request.resource.data.quantity > 0
+          && request.resource.data.newStock == request.resource.data.quantity
+          && getAfter(productPath(movementId)).data.stock == request.resource.data.newStock
+          && request.resource.data.reason == 'Estoque inicial' && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.idempotencyKey == 'initial:' + movementId && request.resource.data.createdAt == request.time;
+      }
+
+      match /orders/{orderId} {
+        allow read: if isMerchantOf(storeId);
+        allow write: if false;
+      }
+
+      match /{privateCollection}/{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /plans/{planId} {
+      allow get: if isMaster()
+        || (isValidActiveUser()
+          && currentUser().role == 'MERCHANT'
+          && exists(/databases/$(database)/documents/stores/$(currentUser().storeId))
+          && get(/databases/$(database)/documents/stores/$(currentUser().storeId)).data.planId == planId);
+      allow list, create, update, delete: if false;
+    }
+
+    match /publicStores/{storeId} {
+      allow get, list: if resource.data.publishable == true && privateStoreIsActive(storeId) && publishingEnabled(storeId)
+        && resource.data.keys().hasOnly(['storeId', 'slug', 'name', 'themePreset', 'publishable', 'whatsapp']);
+      allow create, delete: if false;
+      allow update: if isMerchantOf(storeId) && privateStoreIsActive(storeId) && publishingEnabled(storeId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'whatsapp'])
+        && request.resource.data.get('whatsapp', '') == getAfter(/databases/$(database)/documents/stores/$(storeId)).data.get('whatsapp', '')
+        && request.resource.data.keys().hasOnly(['storeId', 'slug', 'name', 'themePreset', 'publishable', 'whatsapp'])
+        && request.resource.data.name == getAfter(/databases/$(database)/documents/stores/$(storeId)).data.name
+        && getAfter(/databases/$(database)/documents/stores/$(storeId)).data.updatedAt == request.time;
+
+      function visibleParent() {
+        return privateStoreIsActive(storeId) && publishingEnabled(storeId)
+          && get(/databases/$(database)/documents/publicStores/$(storeId)).data.publishable == true;
+      }
+      function sourceCommit(kind, id) {
+        let path = /databases/$(database)/documents/stores/$(storeId);
+        return isMerchantOf(storeId) && privateStoreIsActive(storeId) && publishingEnabled(storeId)
+          && getAfter(path).data.usage.revision == get(path).data.usage.revision + 1
+          && getAfter(path).data.catalogMutation == {'kind': kind, 'id': id};
+      }
+
+      match /products/{productId} {
+        allow get, list: if resource.data.publishable == true && visibleParent()
+          && resource.data.keys().hasOnly(['id', 'storeId', 'name', 'description', 'priceCents', 'categoryId', 'publishable', 'available', 'maxQuantity']);
+        allow create, update: if sourceCommit('PRODUCT', productId)
+          && request.resource.data == publicProductData(storeId, productId, getAfter(/databases/$(database)/documents/stores/$(storeId)/products/$(productId)).data);
+        allow delete: if false;
+      }
+      match /categories/{categoryId} {
+        allow get, list: if resource.data.publishable == true && visibleParent()
+          && resource.data.keys().hasOnly(['id', 'storeId', 'name', 'publishable']);
+        allow create, update: if isMerchantOf(storeId) && privateStoreIsActive(storeId) && publishingEnabled(storeId)
+          && getAfter(/databases/$(database)/documents/stores/$(storeId)/categories/$(categoryId)).data.catalogRevision
+            == getAfter(/databases/$(database)/documents/stores/$(storeId)).data.usage.revision
+          && getAfter(/databases/$(database)/documents/stores/$(storeId)).data.usage.revision
+            == get(/databases/$(database)/documents/stores/$(storeId)).data.usage.revision + 1
+          && request.resource.data == publicCategoryData(storeId, categoryId, getAfter(/databases/$(database)/documents/stores/$(storeId)/categories/$(categoryId)).data);
+        allow delete: if false;
+      }
+    }
+
+    match /publicStoreSlugs/{slug} {
+      allow get: if !exists(/databases/$(database)/documents/publicStoreSlugs/$(slug))
+        || (resource.data.keys().hasOnly(['storeId']) && privateStoreIsActive(resource.data.storeId) && publishingEnabled(resource.data.storeId));
+      allow list, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

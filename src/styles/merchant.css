@@ -1,0 +1,56 @@
+.merchant-login { min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; align-items: center; gap: clamp(2rem, 7vw, 7rem); padding: clamp(1.5rem, 6vw, 6rem); background: radial-gradient(ellipse at top left, var(--admin-surface-raised), transparent 65%), var(--admin-bg); }
+.merchant-brand { display: inline-flex; align-items: center; gap: .8rem; text-decoration: none; font-size: 1.05rem; font-weight: 800; color: var(--admin-text); }
+.merchant-brand img { width: 78px; height: 38px; object-fit: cover; border-radius: var(--radius-xs); background: var(--ats-white); }
+.login-story { max-width: 40rem; } .login-story > .merchant-brand { margin-bottom: clamp(3rem, 8vw, 7rem); }
+.login-story > .eyebrow { display: block; } .login-story h1 { margin: 1.2rem 0; font-size: clamp(2rem, 4.5vw, 4.8rem); line-height: 1.08; letter-spacing: -.055em; }
+.login-story > p { max-width: 40ch; color: var(--admin-muted); font-size: 1.1rem; }
+.login-local { display: inline-block; margin-top: 2rem; font-size: .8rem; color: var(--admin-muted); }
+.login-card { width: 100%; max-width: 29rem; justify-self: center; border: 1px solid var(--admin-border); padding: clamp(1.3rem, 4vw, 3rem); border-radius: var(--radius-xl); background: var(--admin-surface); box-shadow: var(--shadow-md); }
+.login-card > svg { color: var(--admin-primary); } .login-card h2 { font-size: 1.8rem; margin: 1rem 0 .5rem; letter-spacing: -.035em; }
+.login-card > p, .login-card > small { color: var(--admin-muted); } .login-card > small { display: block; margin-top: 1.7rem; line-height: 1.6; }
+.login-card form { display: grid; gap: 1.2rem; margin-top: 2rem; } .login-card form > .ui-button { width: 100%; min-height: 46px; }
+.merchant-shell { min-height: 100vh; display: grid; grid-template-columns: 244px minmax(0, 1fr); background: var(--admin-bg); color: var(--admin-text); }
+.merchant-sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 1.7rem 1rem; border-right: 1px solid var(--admin-border); background: var(--admin-surface); }
+.merchant-sidebar > .merchant-brand { margin: 0 .45rem 2.4rem; }
+.sidebar-store { display: flex; align-items: center; gap: .7rem; padding: 1rem; background: var(--admin-surface-raised); border: 1px solid var(--admin-border); border-radius: var(--radius-md); margin-bottom: 2rem; }
+.sidebar-store > svg { flex-shrink: 0; color: var(--admin-primary); } .sidebar-store > div { min-width: 0; }
+.sidebar-store small, .sidebar-store strong { display: block; overflow-wrap: anywhere; } .sidebar-store small { color: var(--admin-muted); font-size: .7rem; } .sidebar-store strong { font-size: .84rem; }
+.nav-eyebrow { margin: 0 1rem .6rem; color: var(--admin-muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; }
+.merchant-sidebar nav, .merchant-mobile-nav nav { display: grid; gap: .4rem; }
+.merchant-sidebar nav a, .merchant-mobile-nav nav a { display: flex; align-items: center; gap: .85rem; min-height: 46px; padding: .75rem 1rem; border-radius: var(--radius-sm); color: var(--admin-muted); text-decoration: none; font-size: .86rem; font-weight: 650; transition: background var(--duration-fast), color var(--duration-fast); }
+.merchant-sidebar nav a[aria-current], .merchant-mobile-nav nav a[aria-current] { background: var(--admin-surface-raised); color: var(--admin-primary); box-shadow: inset 3px 0 var(--admin-primary); }
+.merchant-sidebar nav a:hover, .merchant-mobile-nav nav a:hover { color: var(--admin-text); background: var(--admin-surface-raised); }
+.sidebar-bottom { margin-top: auto; display: grid; gap: .15rem; padding: 1rem; border-top: 1px solid var(--admin-border); font-size: .78rem; } .sidebar-bottom small { color: var(--admin-muted); }
+.merchant-workspace { min-width: 0; } .merchant-topbar { height: 76px; display: flex; align-items: center; gap: .5rem; padding: 1rem clamp(1rem, 3vw, 3rem); border-bottom: 1px solid var(--admin-border); background: var(--admin-surface); }
+.merchant-topbar > .ui-button { margin-left: auto; } .merchant-breadcrumb { display: flex; align-items: center; gap: .65rem; font-size: .78rem; color: var(--admin-muted); } .merchant-breadcrumb strong { color: var(--admin-text); }
+.mobile-menu { display: none; } .merchant-main { max-width: var(--container-max); margin-inline: auto; padding: clamp(1rem, 3vw, 3rem); }
+.merchant-page-heading { margin-bottom: 2rem; } .merchant-page-heading h1 { margin: .45rem 0; font-size: clamp(1.7rem, 3vw, 2.2rem); letter-spacing: -.04em; line-height: 1.2; } .merchant-page-heading p { margin: .5rem 0 0; color: var(--admin-muted); font-size: .9rem; }
+.merchant-main h2 { font-size: 1.1rem; line-height: 1.35; margin: 0 0 .6rem; } .merchant-main .ui-card { min-width: 0; }
+.merchant-main .ui-toast { margin-bottom: 1rem; } .merchant-main .muted { color: var(--admin-muted); font-size: .88rem; }
+.merchant-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.merchant-metrics .metric-card__head { gap: .4rem; } .merchant-metrics .metric-card__head span { font-size: .77rem; }
+.dashboard-grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 1.5rem; } .dashboard-grid .eyebrow { display: block; margin-bottom: .9rem; }
+.start-steps { display: grid; gap: .6rem; margin-top: 1.5rem; } .start-steps button { display: flex; align-items: center; gap: 1rem; border: 1px solid var(--admin-border); border-radius: var(--radius-md); padding: 1rem; background: var(--admin-surface-raised); color: var(--admin-text); text-align: left; cursor: pointer; }
+.start-steps button:disabled { opacity: .5; cursor: not-allowed; } .start-steps button > span { color: var(--admin-primary); font-weight: 800; font-size: .8rem; } .start-steps button > svg { margin-left: auto; flex-shrink: 0; } .start-steps strong, .start-steps small { display: block; } .start-steps small { color: var(--admin-muted); font-size: .75rem; margin-top: .2rem; }
+.quota { margin-top: 1.8rem; } .quota > div { display: flex; justify-content: space-between; gap: 1rem; font-size: .82rem; margin-bottom: .5rem; } .quota progress { width: 100%; height: .5rem; accent-color: var(--admin-primary); }
+.catalog-toolbar { display: flex; align-items: end; gap: 1rem; justify-content: space-between; margin-bottom: 1.5rem; } .catalog-toolbar > .field { width: min(22rem, 50%); } .catalog-toolbar > div:last-child { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.usage-text { display: block; color: var(--admin-muted); font-size: .8rem; } .catalog-table.ui-card { padding: 0; overflow: hidden; }
+.product-cell { display: flex; align-items: center; gap: .8rem; min-width: 12rem; max-width: 20rem; } .product-cell strong { white-space: normal; overflow-wrap: anywhere; }
+.product-thumb { flex: 0 0 42px; height: 42px; display: grid; place-items: center; border-radius: var(--radius-xs); color: var(--admin-muted); background: var(--admin-surface-raised); }
+.numeric { font-variant-numeric: tabular-nums; white-space: nowrap; } .row-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; } .row-actions .ui-button { min-height: 44px; font-size: .75rem; padding-inline: .75rem; }
+.catalog-table .row-actions { min-width: 15rem; } .product-form { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(14rem, 1fr); gap: 1.5rem; align-items: start; }
+.merchant-fields { margin: 1.4rem 0 0; padding: 0; border: 0; display: grid; gap: 1.1rem; min-width: 0; } .form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .7rem; margin-top: 1.6rem; } .merchant-main .ui-input, .merchant-main .ui-select, .login-card .ui-input { min-height: 44px; }
+.product-image-placeholder { display: grid; place-content: center; justify-items: center; gap: 1rem; min-height: 200px; border: 1px dashed var(--admin-border); border-radius: var(--radius-md); color: var(--admin-muted); background: var(--admin-surface-raised); font-size: .8rem; margin-bottom: 1.4rem; }
+.categories-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 1fr); gap: 1.5rem; align-items: start; } .categories-layout .usage-text { margin: 0 0 1rem; } .category-list { display: grid; gap: 1rem; }
+.category-title { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.2rem; } .category-title > svg { color: var(--admin-primary); flex-shrink: 0; } .category-title h2 { margin: 0; overflow-wrap: anywhere; flex: 1; } .category-form { margin-top: 1.5rem; }
+.form-error, .notice { padding: .85rem 1rem; border-radius: var(--radius-sm); margin: 1rem 0; font-size: .87rem; line-height: 1.6; overflow-wrap: anywhere; }
+.form-error { border: 1px solid var(--admin-danger); color: var(--admin-text); background: var(--admin-surface-raised); } .notice { border: 1px solid var(--admin-warning); color: var(--admin-text); background: var(--admin-surface-raised); }
+@media (max-width: 1199px) { .merchant-shell { grid-template-columns: 210px minmax(0, 1fr); } .merchant-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .product-form { grid-template-columns: minmax(0, 1fr); } .product-form > aside { max-width: 28rem; } .dashboard-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .merchant-shell { grid-template-columns: minmax(0, 1fr); } .merchant-sidebar { display: none; } .mobile-menu { display: block; } .merchant-topbar { height: 66px; padding-inline: .75rem; } .merchant-mobile-nav { margin-top: 1.5rem; } .merchant-login { gap: 2.5rem; padding: 2rem; } .login-story h1 { font-size: 2.7rem; } }
+@media (max-width: 700px) { .merchant-login { grid-template-columns: minmax(0, 1fr); padding: 1.25rem; gap: 2rem; } .login-story > .merchant-brand { margin-bottom: 2rem; } .login-story h1 { font-size: 2.25rem; } .login-story > p, .login-local { display: none; } .login-card { max-width: none; } .merchant-main { padding: 1rem; } .merchant-page-heading { margin-block: .8rem 1.5rem; } .categories-layout { grid-template-columns: 1fr; } .categories-layout > .ui-card { grid-row: 1; } .form-pair { grid-template-columns: 1fr; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar > .field { width: 100%; } .catalog-toolbar > div:last-child { justify-content: space-between; } .merchant-breadcrumb > span, .merchant-breadcrumb > svg { display: none; } .merchant-metrics { gap: .65rem; } .merchant-metrics .ui-card { padding: .9rem; } .merchant-metrics .ui-badge { white-space: normal; } }
+@media (max-width: 360px) { .merchant-main { padding: .75rem; } .merchant-metrics { grid-template-columns: 1fr; } .merchant-login { padding: 1rem; } .login-story h1 { font-size: 1.9rem; } .form-actions .ui-button { flex: 1; } }
+
+.order-detail { display: grid; gap: 1.25rem; min-width: 0; }
+.order-code { overflow-wrap: anywhere; font-size: .875rem; }
+.catalog-table td small { display: block; color: var(--admin-muted); margin-top: .3rem; }

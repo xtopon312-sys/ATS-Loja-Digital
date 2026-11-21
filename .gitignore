@@ -1,0 +1,26 @@
+node_modules/
+dist/
+coverage/
+.vite/
+.env
+.env.*
+!.env.example
+output/
+.playwright-cli/
+test-results/
+playwright-report/
+*.local
+*.log
+*.tsbuildinfo
+functions/lib/
+
+# Public repository: never include local or operational data
+.env*
+!.env.example
+*.db
+*.sqlite*
+*.log
+.firebase/
+output/
+playwright-report/
+test-results/

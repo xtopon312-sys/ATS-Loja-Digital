@@ -1,0 +1,25 @@
+:root {
+  --ats-ink-950: #030712; --ats-ink-900: #07101f; --ats-ink-800: #0d1a30;
+  --ats-cyan-500: #12c8ff; --ats-violet-500: #8b5cf6; --ats-orange-500: #ff8a3d;
+  --ats-white: #f8fbff; --ats-muted: #9cabc1;
+  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem; --space-12: 3rem;
+  --radius-xs: .375rem; --radius-sm: .625rem; --radius-md: .875rem; --radius-lg: 1.25rem; --radius-xl: 1.75rem;
+  --shadow-sm: 0 8px 24px rgb(3 7 18 / .08); --shadow-md: 0 16px 48px rgb(3 7 18 / .16);
+  --shadow-glow: 0 0 36px rgb(18 200 255 / .14); --focus-ring: 0 0 0 3px rgb(18 200 255 / .36);
+  --duration-fast: 120ms; --duration-standard: 220ms; --duration-slow: 420ms;
+  --ease-standard: cubic-bezier(.2, .8, .2, 1);
+  --z-sticky: 30; --z-overlay: 60; --z-modal: 61; --z-tooltip: 70; --z-skip: 100;
+  --container-max: 90rem;
+  --admin-bg: #050a13; --admin-surface: #0b1424; --admin-surface-raised: #111d31;
+  --admin-border: #23324a; --admin-text: #f7fbff; --admin-muted: #9bacc4;
+  --admin-primary: #12c8ff; --admin-primary-hover: #69ddff; --admin-secondary: #8b5cf6; --admin-accent: #ff8a3d;
+  --admin-success: #42d392; --admin-warning: #ffbd5a; --admin-danger: #ff647c; --admin-info: #69a9ff;
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', Inter, system-ui, sans-serif;
+  --color-background: var(--admin-bg); --color-foreground: var(--admin-text);
+  --color-primary: var(--admin-primary); --color-secondary: var(--admin-secondary);
+  --color-accent: var(--admin-accent); --color-muted: var(--admin-muted); --color-border: var(--admin-border);
+}

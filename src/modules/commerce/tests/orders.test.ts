@@ -1,0 +1,166 @@
+import { describe, expect, it } from 'vitest'
+import type { UnitOfWork } from '../application/UnitOfWork'
+import { commands, fixture, master, merchant, now, orderInput, product, publicActor, store } from './fixtures'
+
+describe('orders and authoritative inventory', () => {
+  it.each([0, -1, 0.5, NaN, Infinity])('rejects invalid item quantity %s', async quantity => {
+    await expect(async () => fixture().create.execute(orderInput('k', 'p', quantity))).rejects.toMatchObject({ code: 'INVALID_QUANTITY' })
+  })
+  it('rejects empty orders', async () => {
+    await expect(async () => fixture().create.execute({ ...orderInput(), items: [] })).rejects.toMatchObject({ code: 'INVALID_QUANTITY' })
+  })
+  it('rejects unsafe subtotal and quantity accumulation', async () => {
+    const f = fixture([{ ...product(), priceCents: Number.MAX_SAFE_INTEGER }])
+    await expect(f.create.execute(orderInput('k', 'p', 2))).rejects.toMatchObject({ code: 'INVALID_PRICE' })
+    await expect(async () => f.create.execute({ ...orderInput(), items: [{ productId: 'p', quantity: Number.MAX_SAFE_INTEGER }, { productId: 'p', quantity: 1 }] })).rejects.toMatchObject({ code: 'INVALID_QUANTITY' })
+  })
+  it('snapshots current prices and names, consolidates items, strips extra customer data, ignores external total', async () => {
+    const f = fixture([product('p', 0)])
+    const input = { ...orderInput(), items: [{ productId: 'p', quantity: 2 }, { productId: 'p', quantity: 1 }],
+      totalCents: 1, customer: { name: 'Test', phone: '12345', document: 'not-to-persist' } }
+    const o = await f.create.execute(input)
+    expect(o.items).toEqual([{ productId: 'p', name: 'Product p', unitPriceCents: 1250, quantity: 3, subtotalCents: 3750 }])
+    expect(o.totalCents).toBe(3750)
+    expect(o.customer).toEqual({ name: 'Test', phone: '12345' })
+    expect(o.status).toBe('PENDING')
+    expect((await f.readProduct())?.stock).toBe(0)
+    expect(await f.movements()).toEqual([])
+    await f.products.update(merchant, 'a', 'p', { priceCents: 9999, name: 'Changed' })
+    expect((await f.readOrder(o.id))?.items).toEqual(o.items)
+    expect((await f.readOrder(o.id))?.totalCents).toBe(3750)
+  })
+  it('rejects foreign product without revealing its existence', async () => {
+    const f = fixture([product('foreign', 5, 'b')])
+    await expect(f.create.execute(orderInput('k', 'foreign'))).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND' })
+    expect(await f.movements('b')).toEqual([])
+  })
+  it.each(['INACTIVE', 'ARCHIVED'] as const)('rejects %s product', async status => {
+    await expect(fixture([{ ...product(), status }]).create.execute(orderInput())).rejects.toMatchObject({ code: 'PRODUCT_UNAVAILABLE' })
+  })
+  it('validates store existence and suspension', async () => {
+    const f = fixture([], { stores: [{ ...store(), status: 'SUSPENDED' }] })
+    await expect(f.create.execute(orderInput())).rejects.toMatchObject({ code: 'STORE_SUSPENDED' })
+    await expect(f.create.execute(orderInput('k', 'p', 1, 'missing'))).rejects.toMatchObject({ code: 'STORE_NOT_FOUND' })
+  })
+  it('creation is idempotent concurrently and after product price changes', async () => {
+    const f = fixture()
+    const [a, b] = await Promise.all([f.create.execute(orderInput()), f.create.execute(orderInput())])
+    expect(a.id).toBe(b.id)
+    await f.products.update(merchant, 'a', 'p', { priceCents: 25 })
+    expect(await f.create.execute(orderInput())).toEqual(a)
+  })
+  it('creation rejects same key with changed intent; canonical repeated items remain equivalent', async () => {
+    const f = fixture()
+    const a = await f.create.execute(orderInput('k', 'p', 2))
+    const b = await f.create.execute({ ...orderInput('k'), items: [{ productId: 'p', quantity: 1 }, { productId: 'p', quantity: 1 }] })
+    expect(b.id).toBe(a.id)
+    await expect(f.create.execute(orderInput('k', 'p', 3))).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
+    await expect(f.create.execute({ ...orderInput('k', 'p', 2), customer: { name: 'Different' } })).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
+  })
+  it('confirmation debits exactly once on concurrent and sequential retries', async () => {
+    const f = fixture()
+    const o = await f.create.execute(orderInput('k', 'p', 2))
+    const [a, b] = await Promise.all([f.confirm.execute(merchant, 'a', o.id), f.confirm.execute(master, 'a', o.id)])
+    expect(a).toEqual(b)
+    expect(a).toMatchObject({ status: 'CONFIRMED', confirmedAt: now, confirmedBy: merchant.actorId })
+    await f.confirm.execute(merchant, 'a', o.id)
+    expect((await f.readProduct())?.stock).toBe(3)
+    expect(await f.movements()).toHaveLength(1)
+    expect((await f.movements())[0]).toMatchObject({ type: 'ORDER_CONFIRMED', quantity: 2, previousStock: 5, newStock: 3, orderId: o.id })
+  })
+  it('insufficient stock on a later item leaves all products and order untouched', async () => {
+    const f = fixture([product('a', 5), product('z', 0)])
+    const o = await f.create.execute({ ...orderInput(), items: [{ productId: 'a', quantity: 2 }, { productId: 'z', quantity: 1 }] })
+    await expect(f.confirm.execute(merchant, 'a', o.id)).rejects.toMatchObject({ code: 'INSUFFICIENT_STOCK' })
+    expect((await f.readProduct('a'))?.stock).toBe(5)
+    expect((await f.readProduct('z'))?.stock).toBe(0)
+    expect(await f.readOrder(o.id)).toEqual(o)
+    expect(await f.movements()).toEqual([])
+  })
+  it('concurrent orders competing for last unit: exactly one wins, other stays PENDING', async () => {
+    const f = fixture([product('p', 1)])
+    const a = await f.create.execute(orderInput('a'))
+    const b = await f.create.execute(orderInput('b'))
+    const results = await Promise.allSettled([f.confirm.execute(merchant, 'a', a.id), f.confirm.execute(merchant, 'a', b.id)])
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
+    expect(results.find(r => r.status === 'rejected')).toMatchObject({ reason: { code: 'INSUFFICIENT_STOCK' } })
+    expect((await f.readProduct())?.stock).toBe(0)
+    expect([(await f.readOrder(a.id))?.status, (await f.readOrder(b.id))?.status].sort()).toEqual(['CONFIRMED', 'PENDING'])
+    expect(await f.movements()).toHaveLength(1)
+  })
+  it('cancels only pending orders without stock changes or movements', async () => {
+    const f = fixture()
+    const o = await f.create.execute(orderInput())
+    expect(await f.cancel.execute(merchant, 'a', o.id)).toMatchObject({ status: 'CANCELLED', cancelledAt: now, cancelledBy: merchant.actorId })
+    expect((await f.readProduct())?.stock).toBe(5)
+    expect(await f.movements()).toEqual([])
+    await expect(f.confirm.execute(merchant, 'a', o.id)).rejects.toMatchObject({ code: 'INVALID_ORDER_STATE' })
+    await expect(f.cancel.execute(merchant, 'a', o.id)).rejects.toMatchObject({ code: 'INVALID_ORDER_STATE' })
+  })
+  it('confirmed orders cannot be cancelled', async () => {
+    const f = fixture()
+    const o = await f.create.execute(orderInput())
+    await f.confirm.execute(merchant, 'a', o.id)
+    await expect(f.cancel.execute(merchant, 'a', o.id)).rejects.toMatchObject({ code: 'INVALID_ORDER_STATE' })
+    expect((await f.readProduct())?.stock).toBe(4)
+  })
+  it('fully reverses actual debits once, including archived product history', async () => {
+    const f = fixture([product('p', 5), product('q', 3)])
+    const o = await f.create.execute({ ...orderInput(), items: [{ productId: 'p', quantity: 2 }, { productId: 'q', quantity: 3 }] })
+    await f.confirm.execute(merchant, 'a', o.id)
+    await f.products.update(merchant, 'a', 'p', { status: 'ARCHIVED', priceCents: 999 })
+    const results = await Promise.all([f.reverse.execute(merchant, 'a', o.id), f.reverse.execute(master, 'a', o.id)])
+    expect(results[0]).toEqual(results[1])
+    expect(results[0]).toMatchObject({ status: 'REVERSED', reversedBy: merchant.actorId, reversedAt: now })
+    expect((await f.readProduct())?.stock).toBe(5)
+    expect((await f.readProduct('q'))?.stock).toBe(3)
+    expect((await f.readOrder(o.id))?.items).toEqual(o.items)
+    expect((await f.movements()).filter(m => m.type === 'ORDER_REVERSED')).toHaveLength(2)
+    await f.reverse.execute(merchant, 'a', o.id)
+    expect(await f.movements()).toHaveLength(4)
+    await expect(f.confirm.execute(merchant, 'a', o.id)).rejects.toMatchObject({ code: 'INVALID_ORDER_STATE' })
+  })
+  it('pending order cannot be reversed', async () => {
+    const f = fixture()
+    const o = await f.create.execute(orderInput())
+    await expect(f.reverse.execute(merchant, 'a', o.id)).rejects.toMatchObject({ code: 'INVALID_ORDER_STATE' })
+  })
+  it.each(['confirm', 'cancel', 'reverse'] as const)('%s requires authorized actor and store scope', async command => {
+    const f = fixture()
+    const o = await f.create.execute(orderInput())
+    await expect(async () => f[command].execute(publicActor, 'a', o.id)).rejects.toMatchObject({ code: 'ACCESS_DENIED' })
+    await expect(async () => f[command].execute({ role: 'MERCHANT', actorId: 'b', storeId: 'b' }, 'a', o.id)).rejects.toMatchObject({ code: 'CROSS_STORE_ACCESS' })
+    await expect(f[command].execute(master, 'b', o.id)).rejects.toMatchObject({ code: 'ORDER_NOT_FOUND' })
+  })
+  it('rolls back all confirmation writes when the final order update fails', async () => {
+    const f = fixture()
+    const o = await f.create.execute(orderInput())
+    const failing: UnitOfWork = { run: work => f.db.run(tx => work({ ...tx, orders: { ...tx.orders,
+      update: async () => { throw new Error('injected write failure') } } })) }
+    await expect(commands(failing, f.runtime).confirm.execute(merchant, 'a', o.id)).rejects.toThrow('injected write failure')
+    expect((await f.readProduct())?.stock).toBe(5)
+    expect(await f.movements()).toEqual([])
+    expect(await f.readOrder(o.id)).toEqual(o)
+    await expect(f.confirm.execute(merchant, 'a', o.id)).resolves.toMatchObject({ status: 'CONFIRMED' })
+  })
+  it('rolls back full reversal if second movement append fails', async () => {
+    const f = fixture([product('p', 5), product('q', 5)])
+    const o = await f.create.execute({ ...orderInput(), items: [{ productId: 'p', quantity: 1 }, { productId: 'q', quantity: 1 }] })
+    await f.confirm.execute(merchant, 'a', o.id)
+    let writes = 0
+    const failing: UnitOfWork = { run: work => f.db.run(tx => work({ ...tx, stockMovements: { ...tx.stockMovements,
+      append: async movement => { if (++writes === 2) throw new Error('injected append failure'); await tx.stockMovements.append(movement) } } })) }
+    await expect(commands(failing, f.runtime).reverse.execute(merchant, 'a', o.id)).rejects.toThrow('injected append failure')
+    expect((await f.readProduct())?.stock).toBe(4)
+    expect((await f.readProduct('q'))?.stock).toBe(4)
+    expect((await f.readOrder(o.id))?.status).toBe('CONFIRMED')
+    expect(await f.movements()).toHaveLength(2)
+  })
+  it('rejects corrupt confirmation history without returning inventory', async () => {
+    const f = fixture()
+    const o = await f.create.execute(orderInput())
+    const corrupt = fixture([product('p', 4)], { orders: [{ ...o, status: 'CONFIRMED' }] })
+    await expect(corrupt.reverse.execute(merchant, 'a', o.id)).rejects.toMatchObject({ code: 'INVALID_STOCK_HISTORY' })
+    expect((await corrupt.readProduct())?.stock).toBe(4)
+  })
+})
